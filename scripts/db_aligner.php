@@ -38,6 +38,11 @@ function db_aligner_execute(Database $db, string $operation, array $context = []
     return $ok;
 }
 
+function db_aligner_db_ok(?Database $db): bool
+{
+    return $db instanceof Database && empty($db->error);
+}
+
 db_aligner_log('db_aligner start');
 
 /* ============================
@@ -53,6 +58,60 @@ $db_sqlsrv_wms            = new Database("sqlsrv", "192.168.50.245", "AHA_8659_G
 $db_sqlsrv_stein          = new Database("sqlsrv", "192.168.30.1",   "master", "METODO", "intGest2018");
 $db_sqlsrv_incas          = new Database("sqlsrv", "192.168.22.104", "EsBisio74", "DBC", "ErPBc25");
 
+db_aligner_log('DB connection status', [
+    'name'   => 'db_mysql',
+    'driver' => 'mysql',
+    'host'   => '127.0.0.1',
+    'db'     => 'guala_app_v1',
+    'status' => db_aligner_db_ok($db_mysql) ? 'ok' : 'error',
+    'error'  => $db_mysql->error,
+]);
+
+db_aligner_log('DB connection status', [
+    'name'   => 'db_sqlsrv_50_65',
+    'driver' => 'sqlsrv',
+    'host'   => '192.168.50.65',
+    'db'     => 'mdw',
+    'status' => db_aligner_db_ok($db_sqlsrv_50_65) ? 'ok' : 'error',
+    'error'  => $db_sqlsrv_50_65->error,
+]);
+
+db_aligner_log('DB connection status', [
+    'name'   => 'db_sqlsrv_data_wherehouse',
+    'driver' => 'sqlsrv',
+    'host'   => '192.168.0.84',
+    'db'     => 'master',
+    'status' => db_aligner_db_ok($db_sqlsrv_data_wherehouse) ? 'ok' : 'error',
+    'error'  => $db_sqlsrv_data_wherehouse->error,
+]);
+
+db_aligner_log('DB connection status', [
+    'name'   => 'db_sqlsrv_wms',
+    'driver' => 'sqlsrv',
+    'host'   => '192.168.50.245',
+    'db'     => 'AHA_8659_GUALA_ROM_PROD',
+    'status' => db_aligner_db_ok($db_sqlsrv_wms) ? 'ok' : 'error',
+    'error'  => $db_sqlsrv_wms->error,
+]);
+
+db_aligner_log('DB connection status', [
+    'name'   => 'db_sqlsrv_stein',
+    'driver' => 'sqlsrv',
+    'host'   => '192.168.30.1',
+    'db'     => 'master',
+    'status' => db_aligner_db_ok($db_sqlsrv_stein) ? 'ok' : 'error',
+    'error'  => $db_sqlsrv_stein->error,
+]);
+
+db_aligner_log('DB connection status', [
+    'name'   => 'db_sqlsrv_incas',
+    'driver' => 'sqlsrv',
+    'host'   => '192.168.22.104',
+    'db'     => 'EsBisio74',
+    'status' => db_aligner_db_ok($db_sqlsrv_incas) ? 'ok' : 'error',
+    'error'  => $db_sqlsrv_incas->error,
+]);
+
 /* ============================
  *   CREAZIONE TABELLE TMP
  * ============================ */
@@ -63,8 +122,16 @@ creaTabelle($db_mysql);
  *   RECUPERO I COMMENTI PER GUALA FP
  * ============================ */
 
-$db_sqlsrv_data_wherehouse->prepare("select * from shir.stg_p.[FP-CommentLine]");
-$res_comment_fp = $db_sqlsrv_data_wherehouse->fetchAll();
+if (!db_aligner_db_ok($db_sqlsrv_data_wherehouse)) {
+    db_aligner_log('Skipping FP comments: source connection failed', [
+        'db'    => 'db_sqlsrv_data_wherehouse',
+        'error' => $db_sqlsrv_data_wherehouse->error,
+    ]);
+    $res_comment_fp = [];
+} else {
+    $db_sqlsrv_data_wherehouse->prepare("select * from shir.stg_p.[FP-CommentLine]");
+    $res_comment_fp = $db_sqlsrv_data_wherehouse->fetchAll();
+}
 
 db_aligner_log('Loaded FP comments', [
     'source' => 'shir.stg_p.[FP-CommentLine]',
@@ -103,34 +170,42 @@ $db_mysql->prepare("RENAME TABLE `table_commenti_guala_fp_tmp` TO `table_comment
  * ============================ */
 echo "\n\nINIZIO PARTE PER STAIN - BISIO \n\n";
 
-$db_sqlsrv_stein->prepare("
-SELECT 
-    t2.nome,
-    t2.DescrMacchinaEstesa,
-    stato.StatoOperazione,
-    stato.nrordinesap,
-    stato.codarticolo,
-    stato.DescrizioneArticolo
-FROM [BisioProgetti_STAINPlus].dbo.tb_cm_cfg_Macchine t2
-OUTER APPLY (
-    SELECT TOP 1 
-        t1.StatoOperazione,
-        t1.IDOrdine,
-        t3.nrordinesap,
-        t4.CodArticolo,
-        t5.DescrizioneArticolo
-    FROM [BisioProgetti_STAINPlus].dbo.tb_odp_OrdiniOperazioni t1
-    JOIN [BisioProgetti_STAINPlus].dbo.tb_odp_Ordinitestata t3  ON t1.idordine=t3.idordine
-    JOIN [BisioProgetti_STAINPlus].dbo.tb_odp_Ordiniprodotto t4 ON t1.idordine=t4.idordine
-    JOIN [BisioProgetti_STAINPlus].dbo.tb_ana_AnagraficaArticoli t5 ON t4.codarticolo=t5.codarticolo
-    WHERE t1.CentroDiLavoro = t2.DescrMacchinaEstesa
-      AND t1.statooperazione IS NOT NULL
-    ORDER BY t1.LastUpdateDate DESC
-) AS stato
-WHERE stato.StatoOperazione IS NOT NULL 
-ORDER BY t2.nome;
-");
-$res_stain = $db_sqlsrv_stein->fetchAll();
+if (!db_aligner_db_ok($db_sqlsrv_stein)) {
+    db_aligner_log('Skipping STAIN/BISIO section: source connection failed', [
+        'db'    => 'db_sqlsrv_stein',
+        'error' => $db_sqlsrv_stein->error,
+    ]);
+    $res_stain = [];
+} else {
+    $db_sqlsrv_stein->prepare("
+    SELECT 
+        t2.nome,
+        t2.DescrMacchinaEstesa,
+        stato.StatoOperazione,
+        stato.nrordinesap,
+        stato.codarticolo,
+        stato.DescrizioneArticolo
+    FROM [BisioProgetti_STAINPlus].dbo.tb_cm_cfg_Macchine t2
+    OUTER APPLY (
+        SELECT TOP 1 
+            t1.StatoOperazione,
+            t1.IDOrdine,
+            t3.nrordinesap,
+            t4.CodArticolo,
+            t5.DescrizioneArticolo
+        FROM [BisioProgetti_STAINPlus].dbo.tb_odp_OrdiniOperazioni t1
+        JOIN [BisioProgetti_STAINPlus].dbo.tb_odp_Ordinitestata t3  ON t1.idordine=t3.idordine
+        JOIN [BisioProgetti_STAINPlus].dbo.tb_odp_Ordiniprodotto t4 ON t1.idordine=t4.idordine
+        JOIN [BisioProgetti_STAINPlus].dbo.tb_ana_AnagraficaArticoli t5 ON t4.codarticolo=t5.codarticolo
+        WHERE t1.CentroDiLavoro = t2.DescrMacchinaEstesa
+          AND t1.statooperazione IS NOT NULL
+        ORDER BY t1.LastUpdateDate DESC
+    ) AS stato
+    WHERE stato.StatoOperazione IS NOT NULL 
+    ORDER BY t2.nome;
+    ");
+    $res_stain = $db_sqlsrv_stein->fetchAll();
+}
 
 db_aligner_log('Loaded STAIN/BISIO rows', [
     'source' => 'BisioProgetti_STAINPlus',
@@ -165,8 +240,16 @@ $db_mysql->prepare("RENAME TABLE `bisio_progetti_stain_tmp` TO `bisio_progetti_s
  * ============================ */
 echo "\n\nINIZIO PARTE PER LOTTI DI LAVORO - INCAS\n\n";
 
-$db_sqlsrv_incas->prepare("SELECT * FROM view_OrdineLavoroLotto");
-$res_incas = $db_sqlsrv_incas->fetchAll();
+if (!db_aligner_db_ok($db_sqlsrv_incas)) {
+    db_aligner_log('Skipping INCAS section: source connection failed', [
+        'db'    => 'db_sqlsrv_incas',
+        'error' => $db_sqlsrv_incas->error,
+    ]);
+    $res_incas = [];
+} else {
+    $db_sqlsrv_incas->prepare("SELECT * FROM view_OrdineLavoroLotto");
+    $res_incas = $db_sqlsrv_incas->fetchAll();
+}
 
 db_aligner_log('Loaded INCAS rows', [
     'source' => 'view_OrdineLavoroLotto',
@@ -201,15 +284,23 @@ $db_mysql->prepare("RENAME TABLE `ordini_lavoro_lotti_tmp` TO `ordini_lavoro_lot
  * ============================ */
 echo "\n\nINIZIO PARTE ORDINI PRODOTTI IN ROMANIA\n\n";
 
-$db_sqlsrv_wms->prepare("
-SELECT 
-    codice_udc, sku, LEFT(producttype,2) AS productype,
-    UT.Id_Unita_Misura AS UM, UD.Quantita_Pezzi AS Quantita, Stato_udc
-FROM [AwmConfig].[vUdcTestata] UT
-JOIN udc_dettaglio UD ON UT.Id_udc = UD.id_udc
-WHERE partizione LIKE '1%' OR UT.Guala_Location IN ('INBOUND','SELE')
-");
-$rows_db_sqlsrv_wms = $db_sqlsrv_wms->fetchAll();
+if (!db_aligner_db_ok($db_sqlsrv_wms)) {
+    db_aligner_log('Skipping WMS Romania section: source connection failed', [
+        'db'    => 'db_sqlsrv_wms',
+        'error' => $db_sqlsrv_wms->error,
+    ]);
+    $rows_db_sqlsrv_wms = [];
+} else {
+    $db_sqlsrv_wms->prepare("
+    SELECT 
+        codice_udc, sku, LEFT(producttype,2) AS productype,
+        UT.Id_Unita_Misura AS UM, UD.Quantita_Pezzi AS Quantita, Stato_udc
+    FROM [AwmConfig].[vUdcTestata] UT
+    JOIN udc_dettaglio UD ON UT.Id_udc = UD.id_udc
+    WHERE partizione LIKE '1%' OR UT.Guala_Location IN ('INBOUND','SELE')
+    ");
+    $rows_db_sqlsrv_wms = $db_sqlsrv_wms->fetchAll();
+}
 
 db_aligner_log('Loaded WMS rows', [
     'source' => 'AwmConfig.vUdcTestata + udc_dettaglio',
@@ -244,73 +335,88 @@ $db_mysql->prepare("RENAME TABLE `qta_guala_pro_rom_tmp` TO `qta_guala_pro_rom`"
  * ============================ */
 echo "\n\nINIZIO PARTE DI MACHINE CENTER\n\n";
 
-$db_sqlsrv_data_wherehouse->prepare("SELECT No, GUAPosition, name, GUAMachineCenterType, Company FROM shir.stg_p.MachineCenter");
-$rows_mc1 = $db_sqlsrv_data_wherehouse->fetchAll();
-
-db_aligner_log('Loaded MachineCenter rows', [
-    'source' => 'shir.stg_p.MachineCenter',
-    'count'  => is_array($rows_mc1) ? count($rows_mc1) : null,
-]);
-
-$db_mysql->prepare("SET FOREIGN_KEY_CHECKS = 0"); $db_mysql->execute();
-$db_mysql->prepare("DELETE FROM `machine_center`"); $db_mysql->execute();
-$db_mysql->prepare("ALTER TABLE `machine_center` AUTO_INCREMENT = 1"); $db_mysql->execute();
-
-$sql_mc = "
-INSERT INTO `machine_center`
-(`GUAPosition`,`name`,`no`,`GUAMachineCenterType`,`Company`,`GUA_schedule`)
-VALUES (:GUAPosition,:name,:no,:GUAMachineCenterType,:Company,:GUA_schedule)
-";
-$db_mysql->prepare($sql_mc);
-foreach ($rows_mc1 as $r) {
-    $db_mysql->bind(":GUAPosition",         $r["GUAPosition"]);
-    $db_mysql->bind(":name",                $r["name"]);
-    $db_mysql->bind(":no",                  $r["No"]);
-    $db_mysql->bind(":GUAMachineCenterType",$r["GUAMachineCenterType"]);
-    $db_mysql->bind(":Company",             $r["Company"]);
-    $db_mysql->bind(":GUA_schedule",        null);
-    db_aligner_execute($db_mysql, 'insert machine_center (first source)', [
-        'no'          => $r["No"] ?? null,
-        'GUAPosition' => $r["GUAPosition"] ?? null,
+if (!db_aligner_db_ok($db_sqlsrv_data_wherehouse)) {
+    db_aligner_log('Skipping MACHINE CENTER section: source connection failed', [
+        'db'    => 'db_sqlsrv_data_wherehouse',
+        'error' => $db_sqlsrv_data_wherehouse->error,
     ]);
-}
-$db_sqlsrv_data_wherehouse->prepare("
-SELECT No, GUAPosition, name, GUAMachineCenterType, Company, GUAUsageFrom
-FROM [shir].[stg_p].[FP-MachineCenter]
-");
-$rows_mc2 = $db_sqlsrv_data_wherehouse->fetchAll();
+} else {
+    $db_sqlsrv_data_wherehouse->prepare("SELECT No, GUAPosition, name, GUAMachineCenterType, Company FROM shir.stg_p.MachineCenter");
+    $rows_mc1 = $db_sqlsrv_data_wherehouse->fetchAll();
 
-db_aligner_log('Loaded FP-MachineCenter rows', [
-    'source' => 'shir.stg_p.FP-MachineCenter',
-    'count'  => is_array($rows_mc2) ? count($rows_mc2) : null,
-]);
-
-$db_mysql->prepare($sql_mc);
-foreach ($rows_mc2 as $r) {
-    $db_mysql->bind(":GUAPosition",         $r["GUAPosition"]);
-    $db_mysql->bind(":name",                $r["name"]);
-    $db_mysql->bind(":no",                  $r["No"]);
-    $db_mysql->bind(":GUAMachineCenterType",$r["GUAMachineCenterType"]);
-    $db_mysql->bind(":Company",             $r["Company"]);
-    $db_mysql->bind(":GUA_schedule",        $r["GUAUsageFrom"]);
-    db_aligner_execute($db_mysql, 'insert machine_center (FP source)', [
-        'no'          => $r["No"] ?? null,
-        'GUAPosition' => $r["GUAPosition"] ?? null,
+    db_aligner_log('Loaded MachineCenter rows', [
+        'source' => 'shir.stg_p.MachineCenter',
+        'count'  => is_array($rows_mc1) ? count($rows_mc1) : null,
     ]);
+
+    $db_mysql->prepare("SET FOREIGN_KEY_CHECKS = 0"); $db_mysql->execute();
+    $db_mysql->prepare("DELETE FROM `machine_center`"); $db_mysql->execute();
+    $db_mysql->prepare("ALTER TABLE `machine_center` AUTO_INCREMENT = 1"); $db_mysql->execute();
+
+    $sql_mc = "
+    INSERT INTO `machine_center`
+    (`GUAPosition`,`name`,`no`,`GUAMachineCenterType`,`Company`,`GUA_schedule`)
+    VALUES (:GUAPosition,:name,:no,:GUAMachineCenterType,:Company,:GUA_schedule)
+    ";
+    $db_mysql->prepare($sql_mc);
+    foreach ($rows_mc1 as $r) {
+        $db_mysql->bind(":GUAPosition",         $r["GUAPosition"]);
+        $db_mysql->bind(":name",                $r["name"]);
+        $db_mysql->bind(":no",                  $r["No"]);
+        $db_mysql->bind(":GUAMachineCenterType",$r["GUAMachineCenterType"]);
+        $db_mysql->bind(":Company",             $r["Company"]);
+        $db_mysql->bind(":GUA_schedule",        null);
+        db_aligner_execute($db_mysql, 'insert machine_center (first source)', [
+            'no'          => $r["No"] ?? null,
+            'GUAPosition' => $r["GUAPosition"] ?? null,
+        ]);
+    }
+    $db_sqlsrv_data_wherehouse->prepare("
+    SELECT No, GUAPosition, name, GUAMachineCenterType, Company, GUAUsageFrom
+    FROM [shir].[stg_p].[FP-MachineCenter]
+    ");
+    $rows_mc2 = $db_sqlsrv_data_wherehouse->fetchAll();
+
+    db_aligner_log('Loaded FP-MachineCenter rows', [
+        'source' => 'shir.stg_p.FP-MachineCenter',
+        'count'  => is_array($rows_mc2) ? count($rows_mc2) : null,
+    ]);
+
+    $db_mysql->prepare($sql_mc);
+    foreach ($rows_mc2 as $r) {
+        $db_mysql->bind(":GUAPosition",         $r["GUAPosition"]);
+        $db_mysql->bind(":name",                $r["name"]);
+        $db_mysql->bind(":no",                  $r["No"]);
+        $db_mysql->bind(":GUAMachineCenterType",$r["GUAMachineCenterType"]);
+        $db_mysql->bind(":Company",             $r["Company"]);
+        $db_mysql->bind(":GUA_schedule",        $r["GUAUsageFrom"]);
+        db_aligner_execute($db_mysql, 'insert machine_center (FP source)', [
+            'no'          => $r["No"] ?? null,
+            'GUAPosition' => $r["GUAPosition"] ?? null,
+        ]);
+    }
+    $db_mysql->prepare("SET FOREIGN_KEY_CHECKS = 1"); $db_mysql->execute();
 }
-$db_mysql->prepare("SET FOREIGN_KEY_CHECKS = 1"); $db_mysql->execute();
 
 /* ============================
  *   ORDINI MES (ROMANIA)
  * ============================ */
 echo "\n\nINIZIO PARTE DI ORDINI MES\n\n";
-$db_sqlsrv_50_65->prepare("SELECT * FROM orderfrommes");
-$rows_mes = $db_sqlsrv_50_65->fetchAll();
+if (!db_aligner_db_ok($db_sqlsrv_50_65)) {
+    db_aligner_log('Skipping ORDINI MES (ROMANIA): source connection failed', [
+        'db'    => 'db_sqlsrv_50_65',
+        'error' => $db_sqlsrv_50_65->error,
+    ]);
+    $rows_mes = [];
+} else {
+    $db_sqlsrv_50_65->prepare("SELECT * FROM orderfrommes");
+    $rows_mes = $db_sqlsrv_50_65->fetchAll();
 
-db_aligner_log('Loaded MES orders', [
-    'source' => 'orderfrommes',
-    'count'  => is_array($rows_mes) ? count($rows_mes) : null,
-]);
+    db_aligner_log('Loaded MES orders', [
+        'source' => 'orderfrommes',
+        'count'  => is_array($rows_mes) ? count($rows_mes) : null,
+    ]);
+}
 
 $sql_ofm = "INSERT INTO `orderfrommes_tmp`(`ordernane`,`messtatus`) VALUES (:ordernane,:messtatus)";
 foreach ($rows_mes as $r) {
@@ -399,25 +505,46 @@ foreach ($response_guamesprodorders as $value) {
         // family + produced qty
         if (strpos($v["mesOrderNo"], "AS") !== false) {
             $v["family"] = getFamily($v["itemNo"], $cod_ogg);
-            $db_sqlsrv_50_65->prepare("
-                SELECT ROUND(SUM(value),0) AS totale
-                FROM bm20.IndicatorValueEmulation t1 WITH (NOLOCK)
-                JOIN bm20.OperationExecution t3 ON t1.OperationExecutionId=t3.OperationExecutionId
-                JOIN bm20.Indicator ind ON ind.IndicatorId=t1.Indicatorid
-                WHERE t1.IndicatorTypeId=2 AND t1.value < 1000
-                  AND ind.IndicatorKey LIKE 'Good%'
-                  AND t3.OperationExecutionkey = '{$v["mesOrderNo"]}'
-            ");
+            if (db_aligner_db_ok($db_sqlsrv_50_65)) {
+                $db_sqlsrv_50_65->prepare("
+                    SELECT ROUND(SUM(value),0) AS totale
+                    FROM bm20.IndicatorValueEmulation t1 WITH (NOLOCK)
+                    JOIN bm20.OperationExecution t3 ON t1.OperationExecutionId=t3.OperationExecutionId
+                    JOIN bm20.Indicator ind ON ind.IndicatorId=t1.Indicatorid
+                    WHERE t1.IndicatorTypeId=2 AND t1.value < 1000
+                      AND ind.IndicatorKey LIKE 'Good%'
+                      AND t3.OperationExecutionkey = '{$v["mesOrderNo"]}'
+                ");
+            } else {
+                db_aligner_log('Skipping good quantity lookup (IndicatorValueEmulation): connection failed', [
+                    'db'        => 'db_sqlsrv_50_65',
+                    'mesOrderNo'=> $v["mesOrderNo"] ?? null,
+                    'error'     => $db_sqlsrv_50_65->error,
+                ]);
+            }
         } else {
             $v["family"] = "";
-            $db_sqlsrv_50_65->prepare("
-                SELECT SUM(good) AS totale
-                FROM GoodQuantityMonitoring WITH (NOLOCK)
-                WHERE ordername='{$v["mesOrderNo"]}'
-            ");
+            if (db_aligner_db_ok($db_sqlsrv_50_65)) {
+                $db_sqlsrv_50_65->prepare("
+                    SELECT SUM(good) AS totale
+                    FROM GoodQuantityMonitoring WITH (NOLOCK)
+                    WHERE ordername='{$v["mesOrderNo"]}'
+                ");
+            } else {
+                db_aligner_log('Skipping good quantity lookup (GoodQuantityMonitoring): connection failed', [
+                    'db'        => 'db_sqlsrv_50_65',
+                    'mesOrderNo'=> $v["mesOrderNo"] ?? null,
+                    'error'     => $db_sqlsrv_50_65->error,
+                ]);
+            }
         }
-        $good  = $db_sqlsrv_50_65->fetch();
-        $qtyOk = isset($good["totale"]) ? $good["totale"] : 0;
+        if (db_aligner_db_ok($db_sqlsrv_50_65)) {
+            $good  = $db_sqlsrv_50_65->fetch();
+            $qtyOk = isset($good["totale"]) ? $good["totale"] : 0;
+        } else {
+            $good  = null;
+            $qtyOk = 0;
+        }
 
         $db_mysql->prepare($sql_orders_tmp);
         $db_mysql->bind(":mesOrderNo",      $v["mesOrderNo"]);
@@ -462,6 +589,15 @@ if ($db_mysql->execute()) {
     ";
 
     foreach ($res as $r) {
+        if (!db_aligner_db_ok($db_sqlsrv_data_wherehouse)) {
+            db_aligner_log('Skipping BOMExplosion lookup: source connection failed', [
+                'db'       => 'db_sqlsrv_data_wherehouse',
+                'itemNo'   => $r["itemNo"] ?? null,
+                'error'    => $db_sqlsrv_data_wherehouse->error,
+            ]);
+            continue;
+        }
+
         $strToSearch = "RO-".$r["itemNo"];
         $db_sqlsrv_data_wherehouse->prepare("
             SELECT xLevel, productionBOMNo, BOMReplSystem, BOMInvPostGr, [No], ReplSystem, InvPostGr, UoM, QtyPer, PercScarti, PathString, PathLength, StartingDate, Company
@@ -646,47 +782,54 @@ $db_mysql->prepare("RENAME TABLE `table_guaprodrouting_tmp` TO `table_guaprodrou
 /* Update quantità buoni da STAIN */
 $db_mysql->prepare("SELECT * FROM `table_guaprodrouting`");
 $rr = $db_mysql->fetchAll();
-foreach ($rr as $r) {
-    $db_sqlsrv_stein->prepare("
-        SELECT Q.TotaleQtaProdottaBuoni, Q.TotaleQtaProdottaScarti
-        FROM [BisioProgetti_STAINplus].[dbo].[tb_odp_QuantitaProdotteOperazioni] AS Q
-        INNER JOIN [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniOperazioni] AS OO ON Q.IDOperazioneOdp = OO.IDOperazioneOdp
-        INNER JOIN [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniTestata] AS T ON OO.IDOrdine = T.IDOrdine
-        WHERE T.NrOrdineSAP = '".$r["prodOrderNo"]."'
-          AND OO.OperazioneCiclo = '".$r["operationNo"]."'
-    ");
-    $result = $db_sqlsrv_stein->fetch();
-    if (!empty($result)) {
-        $db_mysql->prepare("UPDATE `table_guaprodrouting` SET `TotaleQtaProdottaBuoni`=:q WHERE `id`=:id");
-        $db_mysql->bind(":q",  $result["TotaleQtaProdottaBuoni"]);
-        $db_mysql->bind(":id", $r["id"]);
-        db_aligner_execute($db_mysql, 'update table_guaprodrouting TotaleQtaProdottaBuoni', [
-            'id'          => $r["id"] ?? null,
-            'prodOrderNo' => $r["prodOrderNo"] ?? null,
-            'operationNo' => $r["operationNo"] ?? null,
-        ]);
+if (!db_aligner_db_ok($db_sqlsrv_stein)) {
+    db_aligner_log('Skipping STAIN quantity update: source connection failed', [
+        'db'    => 'db_sqlsrv_stein',
+        'error' => $db_sqlsrv_stein->error,
+    ]);
+} else {
+    foreach ($rr as $r) {
+        $db_sqlsrv_stein->prepare("
+            SELECT Q.TotaleQtaProdottaBuoni, Q.TotaleQtaProdottaScarti
+            FROM [BisioProgetti_STAINplus].[dbo].[tb_odp_QuantitaProdotteOperazioni] AS Q
+            INNER JOIN [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniOperazioni] AS OO ON Q.IDOperazioneOdp = OO.IDOperazioneOdp
+            INNER JOIN [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniTestata] AS T ON OO.IDOrdine = T.IDOrdine
+            WHERE T.NrOrdineSAP = '".$r["prodOrderNo"]."'
+              AND OO.OperazioneCiclo = '".$r["operationNo"]."'
+        ");
+        $result = $db_sqlsrv_stein->fetch();
+        if (!empty($result)) {
+            $db_mysql->prepare("UPDATE `table_guaprodrouting` SET `TotaleQtaProdottaBuoni`=:q WHERE `id`=:id");
+            $db_mysql->bind(":q",  $result["TotaleQtaProdottaBuoni"]);
+            $db_mysql->bind(":id", $r["id"]);
+            db_aligner_execute($db_mysql, 'update table_guaprodrouting TotaleQtaProdottaBuoni', [
+                'id'          => $r["id"] ?? null,
+                'prodOrderNo' => $r["prodOrderNo"] ?? null,
+                'operationNo' => $r["operationNo"] ?? null,
+            ]);
+        }
     }
-}
 
-$db_mysql->prepare("SELECT * FROM `table_guaprodrouting`");
-foreach ($rr as $r) {
-    $db_sqlsrv_stein->prepare("select StatoOperazione
-        from [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniTestata] T
-        inner join [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniOperazioni] O on T.IdOrdine = O.IdOrdine
-        where T.NrOrdineSAP ='".$r["prodOrderNo"]."'
-        and O.OperazioneCiclo ='".$r["operationNo"]."' 
-    ");
-    $result = $db_sqlsrv_stein->fetch();
+    $db_mysql->prepare("SELECT * FROM `table_guaprodrouting`");
+    foreach ($rr as $r) {
+        $db_sqlsrv_stein->prepare("select StatoOperazione
+            from [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniTestata] T
+            inner join [BisioProgetti_STAINplus].[dbo].[tb_odp_OrdiniOperazioni] O on T.IdOrdine = O.IdOrdine
+            where T.NrOrdineSAP ='".$r["prodOrderNo"]."'
+            and O.OperazioneCiclo ='".$r["operationNo"]."' 
+        ");
+        $result = $db_sqlsrv_stein->fetch();
 
-    if (!empty($result)) {
-        $db_mysql->prepare("UPDATE `table_guaprodrouting` SET `StatoOperazione`=:q WHERE `id`=:id");
-        $db_mysql->bind(":q",  $result["StatoOperazione"]);
-        $db_mysql->bind(":id", $r["id"]);
-        db_aligner_execute($db_mysql, 'update table_guaprodrouting StatoOperazione', [
-            'id'          => $r["id"] ?? null,
-            'prodOrderNo' => $r["prodOrderNo"] ?? null,
-            'operationNo' => $r["operationNo"] ?? null,
-        ]);
+        if (!empty($result)) {
+            $db_mysql->prepare("UPDATE `table_guaprodrouting` SET `StatoOperazione`=:q WHERE `id`=:id");
+            $db_mysql->bind(":q",  $result["StatoOperazione"]);
+            $db_mysql->bind(":id", $r["id"]);
+            db_aligner_execute($db_mysql, 'update table_guaprodrouting StatoOperazione', [
+                'id'          => $r["id"] ?? null,
+                'prodOrderNo' => $r["prodOrderNo"] ?? null,
+                'operationNo' => $r["operationNo"] ?? null,
+            ]);
+        }
     }
 }
 
