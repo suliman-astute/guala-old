@@ -33,7 +33,8 @@ function assemblaggio_log(string $message, array $context = []): void
 
 assemblaggio_log('assemblaggio_aligner start');
 
-$db_mysql = new Database("mysql", "127.0.0.1", "guala_app", "guala_usr", "D@787f7nd");
+// $db_mysql = new Database("mysql", "127.0.0.1", "guala_app", "guala_usr", "D@787f7nd"); // ONLINE
+$db_mysql = new Database("mysql", "127.0.0.1", "guala_app_v1", "root", "", 3307); //TEST
 $db_sqlsrv_50_65 = new Database("sqlsrv", "192.168.50.65", "mdw", "b4web", "%eAnZiUh");
 
 $sql = "SELECT `id`, `mesOrderNo`, `itemNo` FROM `table_gua_mes_prod_orders` WHERE `mesOrderNo` LIKE '%AS%'";
