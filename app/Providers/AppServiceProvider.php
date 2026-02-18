@@ -24,9 +24,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(Dispatcher $events): void
     {
-        if($this->app->environment('production') || $this->app->environment('local')) {
-        URL::forceScheme('https');
-    }
+        if ($this->app->environment('production')) {
+            URL::forceScheme('https');
+        }
+        if (strpos(request()->getHost(), 'ngrok-free.app') !== false) {
+            URL::forceScheme('https');
+        }
         Gate::define('ADMIN', function () {
             return Auth::user()->admin;
         });

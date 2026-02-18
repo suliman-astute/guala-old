@@ -2,6 +2,44 @@
 require_once "C:/inetpub/vhosts/gualapps.sede.gualadispensing.italia.com/httpdocs/classes/Database.class.php";
 require_once "C:/inetpub/vhosts/gualapps.sede.gualadispensing.italia.com/httpdocs/api/BusinessCentralApi.php";
 
+$logDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'scripts';
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0777, true);
+}
+
+$dbAlignerLogFile = $logDir . DIRECTORY_SEPARATOR . 'db_aligner_' . date('Y-m-d') . '.log';
+
+function db_aligner_log(string $message, array $context = []): void
+{
+    global $dbAlignerLogFile;
+
+    $line = '[' . date('Y-m-d H:i:s') . '] ' . $message;
+
+    if ($context) {
+        $sanitized = [];
+        foreach ($context as $key => $value) {
+            if (is_string($key) && preg_match('/password|secret|token/i', $key)) {
+                $sanitized[$key] = '[HIDDEN]';
+            } else {
+                $sanitized[$key] = $value;
+            }
+        }
+
+        $line .= ' ' . json_encode($sanitized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    error_log($line . PHP_EOL, 3, $dbAlignerLogFile);
+}
+
+function db_aligner_execute(Database $db, string $operation, array $context = []): bool
+{
+    $ok = $db->execute();
+    db_aligner_log($operation . ($ok ? ' OK' : ' ERROR'), $context);
+    return $ok;
+}
+
+db_aligner_log('db_aligner start');
+
 /* ============================
  *   CONNESSIONI DB
  * ============================ */
@@ -28,6 +66,11 @@ creaTabelle($db_mysql);
 $db_sqlsrv_data_wherehouse->prepare("select * from shir.stg_p.[FP-CommentLine]");
 $res_comment_fp = $db_sqlsrv_data_wherehouse->fetchAll();
 
+db_aligner_log('Loaded FP comments', [
+    'source' => 'shir.stg_p.[FP-CommentLine]',
+    'count'  => is_array($res_comment_fp) ? count($res_comment_fp) : null,
+]);
+
 $sql_insert_commenti = "INSERT INTO `table_commenti_guala_fp_tmp`(`TableName`, `No`, `LineNo`, `Date`, `Code`, `Comment`, `Company`) 
                     VALUES (:TableName, :No, :LineNo, :Date, :Code, :Comment, :Company)";
 
@@ -43,7 +86,10 @@ foreach($res_comment_fp as $k=>$rcfp){
     $db_mysql->bind(":Comment", $rcfp["Comment"]);
     $db_mysql->bind(":Company", $rcfp["Company"]);
 
-    if ($db_mysql->execute()) {
+    if (db_aligner_execute($db_mysql, 'insert table_commenti_guala_fp_tmp', [
+        'No'     => $rcfp["No"] ?? null,
+        'LineNo' => $rcfp["LineNo"] ?? null,
+    ])) {
         echo "Inserisco il commento in data ".date("Y-m-d H:i:s")." con id: ".$db_mysql->lastInsertId()." per elemento ".$rcfp["No"]."\n";
     }
 }
@@ -86,6 +132,11 @@ ORDER BY t2.nome;
 ");
 $res_stain = $db_sqlsrv_stein->fetchAll();
 
+db_aligner_log('Loaded STAIN/BISIO rows', [
+    'source' => 'BisioProgetti_STAINPlus',
+    'count'  => is_array($res_stain) ? count($res_stain) : null,
+]);
+
 $sql_stain = "
 INSERT INTO `bisio_progetti_stain_tmp`
 (`nome`,`DescrMacchinaEstesa`,`StatoOperazione`,`nrordinesap`,`codarticolo`,`DescrizioneArticolo`)
@@ -99,8 +150,12 @@ foreach ($res_stain as $r) {
     $db_mysql->bind(":nrordinesap",         $r["nrordinesap"]);
     $db_mysql->bind(":codarticolo",         $r["codarticolo"]);
     $db_mysql->bind(":DescrizioneArticolo", $r["DescrizioneArticolo"]);
-    $db_mysql->execute();
-    echo "Inserito in stain id: ".$db_mysql->lastInsertId()."\n";
+    if (db_aligner_execute($db_mysql, 'insert bisio_progetti_stain_tmp', [
+        'nome'   => $r["nome"] ?? null,
+        'ordine' => $r["nrordinesap"] ?? null,
+    ])) {
+        echo "Inserito in stain id: ".$db_mysql->lastInsertId()."\n";
+    }
 }
 $db_mysql->prepare("DROP TABLE IF EXISTS `bisio_progetti_stain`"); $db_mysql->execute();
 $db_mysql->prepare("RENAME TABLE `bisio_progetti_stain_tmp` TO `bisio_progetti_stain`"); $db_mysql->execute();
@@ -112,6 +167,11 @@ echo "\n\nINIZIO PARTE PER LOTTI DI LAVORO - INCAS\n\n";
 
 $db_sqlsrv_incas->prepare("SELECT * FROM view_OrdineLavoroLotto");
 $res_incas = $db_sqlsrv_incas->fetchAll();
+
+db_aligner_log('Loaded INCAS rows', [
+    'source' => 'view_OrdineLavoroLotto',
+    'count'  => is_array($res_incas) ? count($res_incas) : null,
+]);
 
 $sql_incas = "
 INSERT INTO `ordini_lavoro_lotti_tmp`
@@ -127,8 +187,11 @@ foreach ($res_incas as $r) {
     $db_mysql->bind(":ClienteCodice",       $r["ClienteCodice"] ?? "");
     $db_mysql->bind(":ClienteDescrizione",  $r["ClienteDescrizione"] ?? "");
     $db_mysql->bind(":QtaPrevOrdin",        $r["QtaPrevOrdin"] ?? "");
-    $db_mysql->execute();
-    echo "Inserito in incas id: ".$db_mysql->lastInsertId()."\n";
+    if (db_aligner_execute($db_mysql, 'insert ordini_lavoro_lotti_tmp', [
+        'Ordine' => $r["Ordine"] ?? null,
+    ])) {
+        echo "Inserito in incas id: ".$db_mysql->lastInsertId()."\n";
+    }
 }
 $db_mysql->prepare("DROP TABLE IF EXISTS `ordini_lavoro_lotti`"); $db_mysql->execute();
 $db_mysql->prepare("RENAME TABLE `ordini_lavoro_lotti_tmp` TO `ordini_lavoro_lotti`"); $db_mysql->execute();
@@ -148,6 +211,11 @@ WHERE partizione LIKE '1%' OR UT.Guala_Location IN ('INBOUND','SELE')
 ");
 $rows_db_sqlsrv_wms = $db_sqlsrv_wms->fetchAll();
 
+db_aligner_log('Loaded WMS rows', [
+    'source' => 'AwmConfig.vUdcTestata + udc_dettaglio',
+    'count'  => is_array($rows_db_sqlsrv_wms) ? count($rows_db_sqlsrv_wms) : null,
+]);
+
 $sql_qta = "
 INSERT INTO `qta_guala_pro_rom_tmp`
 (`codice_udc`,`sku`,`Quantita`,`Stato_udc`,`productype`,`UM`)
@@ -161,7 +229,10 @@ foreach ($rows_db_sqlsrv_wms as $rows) {
     $db_mysql->bind(":Stato_udc",  $rows["Stato_udc"]);
     $db_mysql->bind(":productype", $rows["productype"]);
     $db_mysql->bind(":UM",         $rows["UM"]);
-    if ($db_mysql->execute()) {
+    if (db_aligner_execute($db_mysql, 'insert qta_guala_pro_rom_tmp', [
+        'codice_udc' => $rows["codice_udc"] ?? null,
+        'sku'        => $rows["sku"] ?? null,
+    ])) {
         echo "Inserisco in qta_guala_pro_rom ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
     }
 }
@@ -175,6 +246,11 @@ echo "\n\nINIZIO PARTE DI MACHINE CENTER\n\n";
 
 $db_sqlsrv_data_wherehouse->prepare("SELECT No, GUAPosition, name, GUAMachineCenterType, Company FROM shir.stg_p.MachineCenter");
 $rows_mc1 = $db_sqlsrv_data_wherehouse->fetchAll();
+
+db_aligner_log('Loaded MachineCenter rows', [
+    'source' => 'shir.stg_p.MachineCenter',
+    'count'  => is_array($rows_mc1) ? count($rows_mc1) : null,
+]);
 
 $db_mysql->prepare("SET FOREIGN_KEY_CHECKS = 0"); $db_mysql->execute();
 $db_mysql->prepare("DELETE FROM `machine_center`"); $db_mysql->execute();
@@ -193,13 +269,21 @@ foreach ($rows_mc1 as $r) {
     $db_mysql->bind(":GUAMachineCenterType",$r["GUAMachineCenterType"]);
     $db_mysql->bind(":Company",             $r["Company"]);
     $db_mysql->bind(":GUA_schedule",        null);
-    $db_mysql->execute();
+    db_aligner_execute($db_mysql, 'insert machine_center (first source)', [
+        'no'          => $r["No"] ?? null,
+        'GUAPosition' => $r["GUAPosition"] ?? null,
+    ]);
 }
 $db_sqlsrv_data_wherehouse->prepare("
 SELECT No, GUAPosition, name, GUAMachineCenterType, Company, GUAUsageFrom
 FROM [shir].[stg_p].[FP-MachineCenter]
 ");
 $rows_mc2 = $db_sqlsrv_data_wherehouse->fetchAll();
+
+db_aligner_log('Loaded FP-MachineCenter rows', [
+    'source' => 'shir.stg_p.FP-MachineCenter',
+    'count'  => is_array($rows_mc2) ? count($rows_mc2) : null,
+]);
 
 $db_mysql->prepare($sql_mc);
 foreach ($rows_mc2 as $r) {
@@ -209,7 +293,10 @@ foreach ($rows_mc2 as $r) {
     $db_mysql->bind(":GUAMachineCenterType",$r["GUAMachineCenterType"]);
     $db_mysql->bind(":Company",             $r["Company"]);
     $db_mysql->bind(":GUA_schedule",        $r["GUAUsageFrom"]);
-    $db_mysql->execute();
+    db_aligner_execute($db_mysql, 'insert machine_center (FP source)', [
+        'no'          => $r["No"] ?? null,
+        'GUAPosition' => $r["GUAPosition"] ?? null,
+    ]);
 }
 $db_mysql->prepare("SET FOREIGN_KEY_CHECKS = 1"); $db_mysql->execute();
 
@@ -220,13 +307,21 @@ echo "\n\nINIZIO PARTE DI ORDINI MES\n\n";
 $db_sqlsrv_50_65->prepare("SELECT * FROM orderfrommes");
 $rows_mes = $db_sqlsrv_50_65->fetchAll();
 
+db_aligner_log('Loaded MES orders', [
+    'source' => 'orderfrommes',
+    'count'  => is_array($rows_mes) ? count($rows_mes) : null,
+]);
+
 $sql_ofm = "INSERT INTO `orderfrommes_tmp`(`ordernane`,`messtatus`) VALUES (:ordernane,:messtatus)";
 foreach ($rows_mes as $r) {
     $db_mysql->prepare($sql_ofm);
     $db_mysql->bind(":ordernane", $r["ordernane"]);
     $db_mysql->bind(":messtatus", $r["messtatus"]);
-    $db_mysql->execute();
-    echo "Inserisco in orderfrommes ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+    if (db_aligner_execute($db_mysql, 'insert orderfrommes_tmp', [
+        'ordernane' => $r["ordernane"] ?? null,
+    ])) {
+        echo "Inserisco in orderfrommes ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+    }
 }
 $db_mysql->prepare("DROP TABLE IF EXISTS `orderfrommes`"); $db_mysql->execute();
 $db_mysql->prepare("RENAME TABLE `orderfrommes_tmp` TO `orderfrommes`"); $db_mysql->execute();
@@ -247,6 +342,13 @@ $response_guaItemsInProduction = $bc->get('https://api.businesscentral.dynamics.
 $response_guamesprodorders    = $bc->get('https://api.businesscentral.dynamics.com/v2.0/acb6aa33-e9bf-4632-8118-5e4ad89beea4/ROProduction/api/eos/guaa/v2.0/companies(a16f81ea-4219-ee11-9cc3-6045bdaccbcb)/guaMESProdOrders');
 //$response_guamesprodorders    = $bc->get('https://api.businesscentral.dynamics.com/v2.0/acb6aa33-e9bf-4632-8118-5e4ad89beea4/ROProduction/api/eos/guaa/v2.0/companies(a16f81ea-4219-ee11-9cc3-6045bdaccbcb)/guaprodorders');
 
+db_aligner_log('BC ROProduction responses', [
+    'guaItemsInProduction_type' => gettype($response_guaItemsInProduction),
+    'guaItemsInProduction_count' => is_array($response_guaItemsInProduction) ? count($response_guaItemsInProduction) : null,
+    'guaMESProdOrders_type' => gettype($response_guamesprodorders),
+    'guaMESProdOrders_count' => is_array($response_guamesprodorders) ? count($response_guamesprodorders) : null,
+]);
+
 $sql_items_tmp = "
 INSERT INTO `table_gua_items_in_producion_tmp`
 (`entryNo`,`componentNo`,`parentitemNo`,`compDescription`,`levelCode`,`qty`,`unitOfMeasure`,`prodorderno`,`mesOrderNo`,`commento`)
@@ -265,8 +367,12 @@ foreach ($response_guaItemsInProduction as $value) {
         $db_mysql->bind(":unitOfMeasure", $v["unitOfMeasure"]);
         $db_mysql->bind(":prodorderno",   $v["prodorderno"]);
         $db_mysql->bind(":mesOrderNo",    $v["mesOrderNo"]);
-        $db_mysql->execute();
-        echo "Inserisco in guaitemsinproduction ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        if (db_aligner_execute($db_mysql, 'insert table_gua_items_in_producion_tmp', [
+            'entryNo'     => $v["entryNo"] ?? null,
+            'componentNo' => $v["componentNo"] ?? null,
+        ])) {
+            echo "Inserisco in guaitemsinproduction ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        }
     }
 }
 $db_mysql->prepare("DROP TABLE IF EXISTS `table_gua_items_in_producion`"); $db_mysql->execute();
@@ -331,8 +437,12 @@ foreach ($response_guamesprodorders as $value) {
         $db_mysql->bind(":quantita_prodotta",$qtyOk);
         $db_mysql->bind(":startingdatetime", str_replace("Z","", str_replace("T"," ",$v["startingdatetime"])));
         $db_mysql->bind(":no",              $v["no"] ?? null);
-        $db_mysql->execute();
-        echo "Inserisco in guamesprodorders ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        if (db_aligner_execute($db_mysql, 'insert table_gua_mes_prod_orders_tmp', [
+            'mesOrderNo' => $v["mesOrderNo"] ?? null,
+            'itemNo'     => $v["itemNo"] ?? null,
+        ])) {
+            echo "Inserisco in guamesprodorders ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        }
     }
 }
 
@@ -376,8 +486,12 @@ if ($db_mysql->execute()) {
             $db_mysql->bind(":PathLength",     $b["PathLength"]);
             $db_mysql->bind(":StartingDate",   $b["StartingDate"]);
             $db_mysql->bind(":Company",        $b["Company"]);
-            $db_mysql->execute();
-            echo "Inserisco in bom_explosion ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+            if (db_aligner_execute($db_mysql, 'insert bom_explosion_tmp', [
+                'productionBOMNo' => $b["productionBOMNo"] ?? null,
+                'No'              => $b["No"] ?? null,
+            ])) {
+                echo "Inserisco in bom_explosion ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+            }
         }
     }
 }
@@ -419,8 +533,12 @@ foreach ($presse as $p) {
         $db_mysql->bind(":id_mes",  $pio["id_mes"]);
         $db_mysql->bind(":material",$pio["material"]);
         $db_mysql->bind(":lotto",   $pio["lotto"]);
-        $db_mysql->execute();
-        echo "Inserito record in table_import_piovan id ".$db_mysql->lastInsertId()."\n";
+        if (db_aligner_execute($db_mysql, 'insert table_piovan_import_tmp', [
+            'id_mes'  => $pio["id_mes"] ?? null,
+            'lotto'   => $pio["lotto"] ?? null,
+        ])) {
+            echo "Inserito record in table_import_piovan id ".$db_mysql->lastInsertId()."\n";
+        }
     }
 }
 $db_mysql->prepare("DROP TABLE IF EXISTS `table_piovan_import`"); $db_mysql->execute();
@@ -442,7 +560,7 @@ $response_guamesprodorders_fp    = $bc->get('https://api.businesscentral.dynamic
 //$response_guamesprodorders_fp    = $bc->get('https://api.businesscentral.dynamics.com/v2.0/acb6aa33-e9bf-4632-8118-5e4ad89beea4/Production/api/eos/guaa/v2.0/companies(9d717266-4eae-f011-bbd0-7ced8d422850)/guaprodorders');
 $response_guaprodrouting         = $bc->get('https://api.businesscentral.dynamics.com/v2.0/acb6aa33-e9bf-4632-8118-5e4ad89beea4/Production/api/eos/guaa/v2.0/companies(9d717266-4eae-f011-bbd0-7ced8d422850)/guaprodrouting');
 
-$sql_items_tmp_fp = $sql_items_tmp; // stesso schema della tmp
+$sql_items_tmp_fp = $sql_items_tmp;
 foreach ($response_guaItemsInProduction_fp as $value) {
     if (!is_array($value)) continue;
     foreach ($value as $v) {
@@ -456,8 +574,12 @@ foreach ($response_guaItemsInProduction_fp as $value) {
         $db_mysql->bind(":unitOfMeasure", $v["unitOfMeasure"]);
         $db_mysql->bind(":prodorderno",   $v["prodorderno"]);
         $db_mysql->bind(":mesOrderNo",    $v["mesOrderNo"]);
-        $db_mysql->execute();
-        echo "Inserisco in guaitemsinproduction_fp ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        if (db_aligner_execute($db_mysql, 'insert table_gua_items_in_producion_tmp_fp', [
+            'entryNo'     => $v["entryNo"] ?? null,
+            'componentNo' => $v["componentNo"] ?? null,
+        ])) {
+            echo "Inserisco in guaitemsinproduction_fp ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        }
     }
 }
 
@@ -486,8 +608,12 @@ foreach ($response_guamesprodorders_fp as $value) {
         $db_mysql->bind(":quantita_prodotta", 0);
         $db_mysql->bind(":startingdatetime", str_replace("Z","", str_replace("T"," ",$v["startingdatetime"])));
         $db_mysql->bind(":no",              $v["no"] ?? null);
-        $db_mysql->execute();
-        echo "Inserisco in guamesprodorders_fp ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        if (db_aligner_execute($db_mysql, 'insert table_gua_mes_prod_orders_fp', [
+            'mesOrderNo' => $v["mesOrderNo"] ?? null,
+            'itemNo'     => $v["itemNo"] ?? null,
+        ])) {
+            echo "Inserisco in guamesprodorders_fp ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+        }
     }
 }
 
@@ -507,8 +633,12 @@ foreach ($response_guaprodrouting["value"] as $gr) {
     $db_mysql->bind(":operationNo",       $gr["operationNo"]);
     $db_mysql->bind(":type",              $gr["type"]);
     $db_mysql->bind(":no",                $gr["no"]);
-    $db_mysql->execute();
-    echo "Inserisco in table_guaprodrouting_tmp ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+    if (db_aligner_execute($db_mysql, 'insert table_guaprodrouting_tmp', [
+        'prodOrderNo'   => $gr["prodOrderNo"] ?? null,
+        'operationNo'   => $gr["operationNo"] ?? null,
+    ])) {
+        echo "Inserisco in table_guaprodrouting_tmp ".date("Y-m-d H:i:s")." - id: ".$db_mysql->lastInsertId()."\n";
+    }
 }
 $db_mysql->prepare("DROP TABLE IF EXISTS `table_guaprodrouting`"); $db_mysql->execute();
 $db_mysql->prepare("RENAME TABLE `table_guaprodrouting_tmp` TO `table_guaprodrouting`"); $db_mysql->execute();
@@ -530,7 +660,11 @@ foreach ($rr as $r) {
         $db_mysql->prepare("UPDATE `table_guaprodrouting` SET `TotaleQtaProdottaBuoni`=:q WHERE `id`=:id");
         $db_mysql->bind(":q",  $result["TotaleQtaProdottaBuoni"]);
         $db_mysql->bind(":id", $r["id"]);
-        $db_mysql->execute();
+        db_aligner_execute($db_mysql, 'update table_guaprodrouting TotaleQtaProdottaBuoni', [
+            'id'          => $r["id"] ?? null,
+            'prodOrderNo' => $r["prodOrderNo"] ?? null,
+            'operationNo' => $r["operationNo"] ?? null,
+        ]);
     }
 }
 
@@ -548,7 +682,11 @@ foreach ($rr as $r) {
         $db_mysql->prepare("UPDATE `table_guaprodrouting` SET `StatoOperazione`=:q WHERE `id`=:id");
         $db_mysql->bind(":q",  $result["StatoOperazione"]);
         $db_mysql->bind(":id", $r["id"]);
-        $db_mysql->execute();
+        db_aligner_execute($db_mysql, 'update table_guaprodrouting StatoOperazione', [
+            'id'          => $r["id"] ?? null,
+            'prodOrderNo' => $r["prodOrderNo"] ?? null,
+            'operationNo' => $r["operationNo"] ?? null,
+        ]);
     }
 }
 
