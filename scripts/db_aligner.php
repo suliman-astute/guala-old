@@ -34,6 +34,12 @@ function db_aligner_log(string $message, array $context = []): void
 function db_aligner_execute(Database $db, string $operation, array $context = []): bool
 {
     $ok = $db->execute();
+
+    if (!$ok) {
+        $context['error'] = $db->error;
+        $context['sql']   = $db->debugSql();
+    }
+
     db_aligner_log($operation . ($ok ? ' OK' : ' ERROR'), $context);
     return $ok;
 }
