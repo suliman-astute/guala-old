@@ -7,7 +7,7 @@ if (!is_dir($logDir)) {
     mkdir($logDir, 0777, true);
 }
 
-$dbAlignerLogFile = $logDir . DIRECTORY_SEPARATOR . 'db_aligner_' . date('Y-m-d') . '.log';
+$dbAlignerLogFile = $logDir . DIRECTORY_SEPARATOR . 'db_aligner_' . date('Y-m-d_H-i-s') . '.log';
 
 function db_aligner_log(string $message, array $context = []): void
 {
