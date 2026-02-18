@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use JeroenNoten\LaravelAdminLte\Events\BuildingMenu;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -23,6 +24,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(Dispatcher $events): void
     {
+        if($this->app->environment('production') || $this->app->environment('local')) {
+        URL::forceScheme('https');
+    }
         Gate::define('ADMIN', function () {
             return Auth::user()->admin;
         });
