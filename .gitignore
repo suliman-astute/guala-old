@@ -21,3 +21,5 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+!/storage/logs/scripts/db_aligner_*.log
