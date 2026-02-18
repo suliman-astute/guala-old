@@ -44,8 +44,8 @@ db_aligner_log('db_aligner start');
  *   CONNESSIONI DB
  * ============================ */
 /* mysql */
-$db_mysql = new Database("mysql", "127.0.0.1", "guala_app", "guala_usr", "D@787f7nd"); // ONLINE
-//$db_mysql = new Database("mysql", "127.0.0.1", "guala_app_test", "guala_usr_test", "D@787f7nd"); //TEST
+// $db_mysql = new Database("mysql", "127.0.0.1", "guala_app", "guala_usr", "D@787f7nd"); // ONLINE
+$db_mysql = new Database("mysql", "127.0.0.1", "guala_app_v1", "root", "", 3307); //TEST
 
 $db_sqlsrv_50_65          = new Database("sqlsrv", "192.168.50.65",  "mdw",    "b4web", "%eAnZiUh");
 $db_sqlsrv_data_wherehouse = new Database("sqlsrv", "192.168.0.84",  "master", "b4web", "%eAnZiUh");

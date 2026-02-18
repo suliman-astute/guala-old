@@ -11,7 +11,11 @@ class Database {
 
         switch (strtolower($dbType)) {
             case 'mysql':
-                $dsn = "mysql:host=$host;dbname=$dbname;charset=$charset";
+                if ($port) {
+                    $dsn = "mysql:host=$host;port=$port;dbname=$dbname;charset=$charset";
+                } else {
+                    $dsn = "mysql:host=$host;dbname=$dbname;charset=$charset";
+                }
                 $options = [
                     PDO::ATTR_PERSISTENT => true,
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -46,7 +50,18 @@ class Database {
         }
     }
 
+    private function ensureConnection() {
+        if (!($this->dbh instanceof PDO)) {
+            $message = 'Connessione al database non inizializzata';
+            if (!empty($this->error)) {
+                $message .= ': '.$this->error;
+            }
+            throw new RuntimeException($message);
+        }
+    }
+
     public function prepare($query) {
+        $this->ensureConnection();
         $this->stmt = $this->dbh->prepare($query);
         $this->currentQuery = $query;
     }
@@ -92,22 +107,27 @@ class Database {
     }
 
     public function lastInsertId() {
+        $this->ensureConnection();
         return $this->dbh->lastInsertId();
     }
 
     public function beginTransaction() {
+        $this->ensureConnection();
         return $this->dbh->beginTransaction();
     }
 
     public function commit() {
+        $this->ensureConnection();
         return $this->dbh->commit();
     }
 
     public function rollBack() {
+        $this->ensureConnection();
         return $this->dbh->rollBack();
     }
 
     public function inTransaction() {
+        $this->ensureConnection();
         return $this->dbh->inTransaction();
     }
 
