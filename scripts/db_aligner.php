@@ -487,8 +487,6 @@ foreach ($response_guaItemsInProduction as $value) {
         }
     }
 }
-$db_mysql->prepare("DROP TABLE IF EXISTS `table_gua_items_in_producion`"); $db_mysql->execute();
-$db_mysql->prepare("RENAME TABLE `table_gua_items_in_producion_tmp` TO `table_gua_items_in_producion`"); $db_mysql->execute();
 
 /* ORDINI DI PRODUZIONE (ROProduction) */
 echo "\n\nINIZIO PARTE DI ORDINE DI PRODUZIONE\n\n";
@@ -725,6 +723,9 @@ foreach ($response_guaItemsInProduction_fp as $value) {
         }
     }
 }
+
+$db_mysql->prepare("DROP TABLE IF EXISTS `table_gua_items_in_producion`"); $db_mysql->execute();
+$db_mysql->prepare("RENAME TABLE `table_gua_items_in_producion_tmp` TO `table_gua_items_in_producion`"); $db_mysql->execute();
 
 /* Ordini produzione FP */
 $sql_orders_fp = "
