@@ -33,7 +33,9 @@ class BusinessCentralApi {
             CURLOPT_POSTFIELDS => http_build_query($data, '', '&', PHP_QUERY_RFC3986),
             CURLOPT_HTTPHEADER => [
                 "Content-Type: application/x-www-form-urlencoded"
-            ]
+            ],
+            CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => 0,
         ]);
 
         $response = curl_exec($curl);
