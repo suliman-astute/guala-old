@@ -711,6 +711,7 @@ foreach ($response_guaItemsInProduction_fp as $value) {
         $db_mysql->bind(":prodorderno",   $v["prodorderno"]);
         $db_mysql->bind(":mesOrderNo",    $v["mesOrderNo"]);
         if (db_aligner_execute($db_mysql, 'insert table_gua_items_in_producion_tmp_fp', [
+            'prodorderno'     => $v["prodorderno"] ?? null,
             'entryNo'     => $v["entryNo"] ?? null,
             'componentNo' => $v["componentNo"] ?? null,
         ])) {
@@ -745,6 +746,7 @@ foreach ($response_guamesprodorders_fp as $value) {
         $db_mysql->bind(":startingdatetime", str_replace("Z","", str_replace("T"," ",$v["startingdatetime"])));
         $db_mysql->bind(":no",              $v["no"] ?? null);
         if (db_aligner_execute($db_mysql, 'insert table_gua_mes_prod_orders_fp', [
+            'no' => $v["no"] ?? null,
             'mesOrderNo' => $v["mesOrderNo"] ?? null,
             'itemNo'     => $v["itemNo"] ?? null,
         ])) {
@@ -770,6 +772,7 @@ foreach ($response_guaprodrouting["value"] as $gr) {
     $db_mysql->bind(":type",              $gr["type"]);
     $db_mysql->bind(":no",                $gr["no"]);
     if (db_aligner_execute($db_mysql, 'insert table_guaprodrouting_tmp', [
+        'no'   => $gr["no"] ?? null,
         'prodOrderNo'   => $gr["prodOrderNo"] ?? null,
         'operationNo'   => $gr["operationNo"] ?? null,
     ])) {
