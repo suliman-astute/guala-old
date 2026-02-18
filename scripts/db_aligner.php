@@ -1,6 +1,6 @@
 <?php
-require_once "C:/inetpub/vhosts/gualapps.sede.gualadispensing.italia.com/httpdocs/classes/Database.class.php";
-require_once "C:/inetpub/vhosts/gualapps.sede.gualadispensing.italia.com/httpdocs/api/BusinessCentralApi.php";
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'classes' . DIRECTORY_SEPARATOR . 'Database.class.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'BusinessCentralApi.php';
 
 $logDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'scripts';
 if (!is_dir($logDir)) {
