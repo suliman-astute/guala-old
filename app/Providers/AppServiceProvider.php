@@ -27,7 +27,10 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production')) {
             URL::forceScheme('https');
         }
-        if (strpos(request()->getHost(), 'ngrok-free.app') !== false) {
+        if (
+            strpos(request()->getHost(), 'ngrok-free.dev') !== false ||
+            strpos(request()->getHost(), 'trycloudflare.com') !== false
+        ) {
             URL::forceScheme('https');
         }
         Gate::define('ADMIN', function () {
