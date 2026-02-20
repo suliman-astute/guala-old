@@ -58,30 +58,36 @@ class PresseController extends Controller
         return response()->json(['data' => $data]);
     }
 
-    public function create($id = 0)
-    {
-        if ($id) {
-            $data['presse'] = DB::table('machine_center as mc')
-                ->leftJoin('tabella_appoggio_macchine as tam', 'tam.no', '=', 'mc.no')
-                ->where('mc.id', $id)
-                ->select(
+public function create($id = 0)
+{
+    $aziende = DB::table('aziende')->pluck('nome', 'id')->toArray();
+
+    if ($id) {
+        $presse = DB::table('machine_center as mc')
+            ->leftJoin('tabella_appoggio_macchine as tam', 'tam.no', '=', 'mc.no')
+            ->where('mc.id', $id)
+            ->select(
                 'mc.*',
-                DB::raw('tam.id_mes as id_mes'),
-                DB::raw('tam.ingressi_usati as ingressi_usati'),
-                DB::raw('tam.id_piovan as id_piovan'),
-                DB::raw('tam.azienda   as azienda'),
+                'tam.id_mes',
+                'tam.ingressi_usati',
+                'tam.id_piovan',
+                'tam.azienda'
             )
-            ->first(); 
-            //$data['presse'] = Presse::find($id);
-            $aziende = DB::table('aziende')
-                ->pluck('nome', 'id')
-                ->toArray();
-            $data['aziende'] = $aziende;
-        } else {
-            $data['presse'] = new Presse();
-        }
-        return view('presse.form', $data);
+            ->first();
+    } else {
+        // Creiamo un oggetto "vuoto" con le proprietà necessarie per evitare errori in Blade
+        $presse = (object) [
+            'id' => null,
+            'GUAPosition' => '',
+            'id_mes' => '',
+            'id_piovan' => '',
+            'ingressi_usati' => '',
+            'azienda' => ''
+        ];
     }
+
+    return view('presse.form', compact('presse', 'aziende'));
+}
 
     public function store(Request $request)
     {
